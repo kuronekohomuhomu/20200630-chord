@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>コード演奏</title>
+<script>
+const audioContext = new AudioContext();
+let compressorNode;
+let envelope, gainNode;
+const oscillatorNodes = new Array(12);
+// コードデータ
+const noteName = ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"];
+const chordData = [["Major", "", [0, 4, 7, 12]], ["Minor", "m", [0, 3, 7, 12]],
+    ["7", "7", [0, 4, 7, 10]], ["Major 7", "M7", [0, 4, 7, 11]],
+    ["Minor 7", "m7", [0, 3, 7, 10]], ["Minor Major 7", "mM7", [0, 3, 7, 11]]];
+
+const init = () => {
+    // DynamicsCompressor ノード、エンベロープ、Gainノードの作成
+    compressorNode = audioContext.createDynamicsCompressor();
+    envelope = audioContext.createGain();
+    gainNode = audioContext.createGain();
+    compressorNode.connect(envelope);
+    envelope.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    setVolume();
+    // 音階選択用ラジオボタンの作成
+    for (let i = 0; i < noteName.length; i++) {
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "baseNote";
+        radio.id = `n_${i}`;
+        if (i == 3) radio.checked = true;
+        document.getElementById("noteRadio").appendChild(radio);
+        const label = document.createElement("label");
+        label.htmlFor = radio.id;
+        label.innerText = noteName[i];
+        document.getElementById("noteRadio").appendChild(label);
+    }
+    // コード種類用ラジオボタンの作成
+    for (let i = 0; i < chordData.length; i++) {
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "chordType";
+        radio.id = `t_${i}`;
+        if (i == 0) radio.checked = true;
+        document.getElementById("typeRadio").appendChild(radio);
+        const label = document.createElement("label");
+        label.htmlFor = radio.id;
+        label.innerText = chordData[i][0];
+        document.getElementById("typeRadio").appendChild(label);
+    }
+}
+
+const setVolume = () => {
+    // ボリュームを変更
+    const volume = document.getElementById("volume").value;
+    document.getElementById("volumeText").innerHTML = `[${volume}]`;
+    gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
+}
+
+const checkChord = () => {
+    // コードの確認
+    const [baseNote, typeId] = selectChord();
+    playChord(baseNote, chordData[typeId][2], true);
+}
+
+const selectChord = () => {
+    // 選択されたコード（音階、種類）を取得
+    let [baseNote, typeId] = [3, 0];
+    const selectNotes = document.getElementsByName("baseNote");
+    for (const selectNote of selectNotes) {
+        if (selectNote.checked) baseNote = selectNote.id.split("_")[1];
+    }
+    const selectTypes = document.getElementsByName("chordType");
+    for (const selectType of selectTypes) {
+        if (selectType.checked) typeId = selectType.id.split("_")[1];
+    }
+    return [Number(baseNote), typeId];
+}
+
+const playChord = (baseNote, notes, stopCheck = false) => {
+    // コードの再生
+    for (let i = 0; i < oscillatorNodes.length; i++) {
+        let [index, f] = [i, 220];
+        if (i >= 4) [index, f] = [i-4, 440];
+        if (i >= 8) [index, f] = [i-8, 880];
+        playSound(i, notes[index] + baseNote, f);
+        if (stopCheck) stopSound(i, 0.5);
+    }
+    const currentTime = audioContext.currentTime;
+    envelope.gain.setValueAtTime(0, currentTime);
+    envelope.gain.linearRampToValueAtTime(1, currentTime + 0.1);
+    envelope.gain.setTargetAtTime(0.5, currentTime + 0.1, 0.3);
+}
+
+const playSound = (index, note, baseFreq) => {
+    // Oscillatorノードの作成、再生
+    const currentTime = audioContext.currentTime;
+    const f = baseFreq * 2 ** (note / 12);
+    oscillatorNodes[index] = audioContext.createOscillator();
+    oscillatorNodes[index].frequency.setValueAtTime(f, currentTime);
+    oscillatorNodes[index].connect(compressorNode);
+    oscillatorNodes[index].start(currentTime);
+}
+
+const stopSound = (index, delay) => {
+    // 停止
+    oscillatorNodes[index].stop(audioContext.currentTime + delay);
+}
+
+const addChord = () => {
+    // コードの追加
+    const [baseNote, typeId] = selectChord();
+    const button = document.createElement("button");
+    button.id = `c_${baseNote}_${typeId}`;
+    button.innerText = `${noteName[baseNote]}${chordData[typeId][1]}`;
+    button.onmousedown = startPlay;
+    button.onmouseup = stopPlay;
+    button.onmouseleave = stopPlay;
+    button.oncontextmenu = removeChord;
+    document.getElementById("list").appendChild(button);
+}
+
+const removeChord = event => {
+    // コードの削除
+    event.preventDefault();
+    document.getElementById("list").removeChild(event.target);
+}
+
+const startPlay = event => {
+    if (event.button == 0) {
+        // コードを再生
+        const baseNote = Number(event.target.id.split("_")[1]);
+        const typeId = event.target.id.split("_")[2];
+        playChord(baseNote, chordData[typeId][2]);
+    }
+}
+
+const stopPlay = event => {
+    // 停止
+    for (let i = 0; i < oscillatorNodes.length; i++) {
+        stopSound(i, 0.2);
+    }
+    const currentTime = audioContext.currentTime;
+    envelope.gain.cancelScheduleValues(currentTime);
+    envelope.gain.setValueAtTime(envelope.gain.value, currentTime);
+    envelope.gain.exponentialRampToValueAtTime(0.01, currentTime + 0.2);
+}
+
+const clearChord = () => {
+    // 追加したコードをすべてクリア
+    document.getElementById("list").innerHTML = "";
+}
+</script>
+<style>
+button {
+    font-size: 26px;
+    width: 100px;
+    height: 100px;
+    margin: 5px;
+}
+</style>
+</head>
+<body onload="init()">
+<p>コード演奏</p>
+<div id="noteRadio"><span>音階：</span></div><hr>
+<div id="typeRadio"><span>種類：</span></div><hr>
+<input type="button" value="クリア" onclick="clearChord()">
+<input type="button" value="コードを確認" onclick="checkChord()">
+<input type="button" value="コードを追加" onclick="addChord()">
+volume:<input type="range" id="volume" value="0.5" min="0" max="1" step="0.1"
+ onchange="setVolume()"><span id="volumeText">[0.5]</span><hr>
+<div id="list"></div>
+</body>
+</html>
